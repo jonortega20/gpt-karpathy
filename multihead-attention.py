@@ -155,8 +155,7 @@ class BigramLanguageModel(nn.Module):
         token_emb = self.token_embedding_table(idx) # (B,T,C)
         pos_emb = self.position_embedding_table(torch.arange(T, device=device)) # (T,C)
         x = token_emb + pos_emb # (B,T,C)
-        x = self.sa_heads(x) # here we feed the sum into the self-attention block
-        x = self.ffwd(x) # and this is the MLP layer
+        x = self.blocks(x) # here we feed the sum into the self-attention+ffwd block
         logits = self.lm_head(x) # (B,T,vocab_size!=C)
 
         if targets is None:
