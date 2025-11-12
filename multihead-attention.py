@@ -91,9 +91,12 @@ class MultiHeadAttention(nn.Module):
     def __init__(self, num_heads, head_size):
         super().__init__()
         self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)]) # create as many heads as we want...
+        self.proj = nn.Linear(n_embd, n_embd)
 
     def forward(self, x):
-        return torch.cat([h(x) for h in self.heads], dim=-1) # ...and concatenate their results
+        out = torch.cat([h(x) for h in self.heads], dim=-1) # ...and concatenate their results
+        out = self.proj(out)
+        return out
 
 
 class FeedForward(nn.Module):
@@ -102,13 +105,28 @@ class FeedForward(nn.Module):
     def __init__(self, n_embd):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(n_embd, n_embd),
+            nn.Linear(n_embd, 4*n_embd), # the 'Attention is all you need' paper recommends a multiplier of 4
             nn.ReLU(),
+            nn.Linear(4*n_embd, n_embd),
         )
 
     def forward(self, x):
         return self.net(x)
 
+
+class Block(nn.Module):
+    """ transformer block: communication (multi-head attention) followed by computation (feed-forward) """
+
+    def __init__(self, n_embd, n_head):
+        super().__init__()
+        head_size = n_embd // n_head
+        self.sa = MultiHeadAttention(n_head, head_size)
+        self.ffwd = FeedForward(n_embd)
+
+    def forward(self, x):
+        x = x + self.sa(x)   # the sum is due to residual connections
+        x = x + self.ffwd(x) # the sum is due to residual connections
+        return x
 
 
 # super simple bigram model
@@ -119,8 +137,12 @@ class BigramLanguageModel(nn.Module):
         # each token directly reads off the logits for the next token from a lookup table
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
         self.position_embedding_table = nn.Embedding(block_size, n_embd)
-        self.sa_heads = MultiHeadAttention(4, n_embd//4) # 4 heads of 8-dimensional self-attention; we get same n_embd because 32=4*8
-        self.ffwd = FeedForward(n_embd)
+        # WE MERGE THE SA_HEADS AND FFWD INTO BLOCKS THAT CONCATENATE AND CONTAIN BOTH
+        self.blocks = nn.Sequential(
+            Block(n_embd, n_head=4),
+            Block(n_embd, n_head=4),
+            Block(n_embd, n_head=4),            
+        )
         self.lm_head = nn.Linear(n_embd, vocab_size)
 
     def forward(self, idx, targets=None):
